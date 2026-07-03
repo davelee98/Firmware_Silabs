@@ -1,6 +1,7 @@
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
 #include "opendisplay_display.h"
+#include "opendisplay_fortune.h"
 #include "opendisplay_led.h"
 #include "opendisplay_pipe.h"
 #include "opendisplay_constants.h"
@@ -366,6 +367,7 @@ static bool od_process_button_event(uint32_t now_ms)
       st->press_count++;
     }
     st->last_press_ms = now_ms;
+    opendisplay_fortune_on_button_press(now_ms);
   }
   encoded = (uint8_t)((st->button_id & BUTTON_ID_MASK)
             | ((st->press_count & PRESS_COUNT_MASK) << PRESS_COUNT_SHIFT)
@@ -1854,6 +1856,7 @@ void opendisplay_ble_process(void)
   if (od_process_button_event(now_ms) && s_adv_handle != 0xFFu) {
     build_and_apply_adv(s_adv_handle, s_dev_name);
   }
+  opendisplay_fortune_process();
   if (od_nfc_field_detect_process(now_ms) && s_adv_handle != 0xFFu) {
     build_and_apply_adv(s_adv_handle, s_dev_name);
   }

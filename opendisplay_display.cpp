@@ -137,7 +137,22 @@ static const Glyph5x7 s_font5x7[] = {
   { 'N', { 0x7F, 0x02, 0x0C, 0x10, 0x7F } }, { 'O', { 0x3E, 0x41, 0x41, 0x41, 0x3E } },
   { 'P', { 0x7F, 0x09, 0x09, 0x09, 0x06 } }, { 'R', { 0x7F, 0x09, 0x19, 0x29, 0x46 } },
   { 'S', { 0x26, 0x49, 0x49, 0x49, 0x32 } }, { 'W', { 0x3F, 0x40, 0x38, 0x40, 0x3F } },
-  { 'Y', { 0x07, 0x08, 0x70, 0x08, 0x07 } },
+  { 'X', { 0x63, 0x14, 0x08, 0x14, 0x63 } }, { 'Y', { 0x07, 0x08, 0x70, 0x08, 0x07 } },
+  { 'Z', { 0x61, 0x51, 0x49, 0x45, 0x43 } },
+  /* Uppercase glyphs missing from the original set */
+  { 'H', { 0x7F, 0x08, 0x08, 0x08, 0x7F } },
+  { 'J', { 0x20, 0x40, 0x40, 0x40, 0x3F } },
+  { 'K', { 0x7F, 0x08, 0x14, 0x22, 0x41 } },
+  { 'M', { 0x7F, 0x02, 0x04, 0x02, 0x7F } },
+  { 'Q', { 0x3E, 0x41, 0x41, 0x49, 0x7E } },
+  { 'T', { 0x01, 0x01, 0x7F, 0x01, 0x01 } },
+  { 'U', { 0x3F, 0x40, 0x40, 0x40, 0x3F } },
+  { 'V', { 0x0F, 0x30, 0x40, 0x30, 0x0F } },
+  /* Additional punctuation */
+  { '!', { 0x00, 0x00, 0x5F, 0x00, 0x00 } },
+  { ',', { 0x00, 0x00, 0x60, 0x40, 0x00 } },
+  { '-', { 0x00, 0x08, 0x08, 0x08, 0x00 } },
+  { '?', { 0x02, 0x01, 0x51, 0x09, 0x06 } },
 };
 
 static const uint8_t *glyph5x7(char c)
@@ -603,6 +618,109 @@ extern "C" void opendisplay_display_boot_apply(void)
   if (!render_boot_screen(s_epd, opendisplay_get_global_config())) {
     s_epd.fillScreen(BBEP_WHITE);
   }
+  (void)s_epd.refresh(REFRESH_FULL, true);
+  s_epd.sleep(DEEP_SLEEP);
+  display_power_set(false);
+}
+
+extern "C" void opendisplay_display_show_fortune(const char * const *lines)
+{
+  const struct DisplayConfig *d = display_cfg();
+  int panel;
+  uint16_t w, h;
+  bool is4clr, is3clr;
+  int pitch;
+  uint8_t white_byte;
+  static uint8_t s_fortune_row[256];
+  int scale;
+  int line_step;
+  int valid_count;
+  int total_h;
+  int y0;
+  int y;
+  int i;
+
+  if (d == nullptr || lines == nullptr) {
+    return;
+  }
+  panel = opendisplay_map_epd(d->panel_ic_type);
+  if (panel == EP_PANEL_UNDEFINED) {
+    return;
+  }
+
+  /* Count non-NULL lines. */
+  valid_count = 0;
+  for (i = 0; lines[i] != nullptr; i++) {
+    valid_count++;
+  }
+  if (valid_count == 0) {
+    return;
+  }
+
+  opendisplay_display_abort();
+  display_power_set(true);
+  s_epd = BBEPAPER();
+  if (s_epd.setPanelType(panel) != BBEP_SUCCESS) {
+    display_power_set(false);
+    return;
+  }
+  s_epd.setRotation((int)d->rotation * 90);
+  s_epd.initIO(d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin, d->data_pin, d->clk_pin, 0);
+  s_epd.wake();
+  s_epd.sendPanelInitFull();
+
+  w = (uint16_t)s_epd.width();
+  h = (uint16_t)s_epd.height();
+  is4clr = (s_epd._bbep.iFlags & BBEP_4COLOR) != 0;
+  is3clr = (s_epd._bbep.iFlags & BBEP_3COLOR) != 0;
+  pitch   = is4clr ? ((int)w + 3) / 4 : ((int)w + 7) / 8;
+  if (pitch > (int)sizeof(s_fortune_row)) {
+    pitch = (int)sizeof(s_fortune_row);
+  }
+  white_byte = is4clr ? 0x55u : 0xFFu;
+
+  /* Choose scale: use 2 when the display is large enough; else 1. */
+  scale     = ((int)w >= 200 && (int)h >= 80) ? 2 : 1;
+  line_step = 10 * scale;           /* 7px glyph + 3px gap, scaled */
+  total_h   = valid_count * line_step - (3 * scale); /* trim trailing gap */
+  if (total_h > (int)h - 16) {
+    scale     = 1;
+    line_step = 10;
+    total_h   = valid_count * 10 - 3;
+  }
+  /* Vertically center the text block. */
+  y0 = ((int)h - total_h) / 2;
+  if (y0 < 4) {
+    y0 = 4;
+  }
+
+  s_epd.setAddrWindow(0, 0, (int)w, (int)h);
+  s_epd.startWrite(is4clr ? PLANE_1 : PLANE_0);
+
+  for (y = 0; y < (int)h; y++) {
+    int cur_y = y0;
+    memset(s_fortune_row, white_byte, (size_t)pitch);
+    for (i = 0; lines[i] != nullptr; i++) {
+      int text_w = (int)text_width_px(lines[i], scale);
+      int x0 = ((int)w - text_w) / 2;  /* center each line horizontally */
+      if (x0 < 4) {
+        x0 = 4;
+      }
+      draw_text_row(s_fortune_row, y, x0, cur_y, lines[i], scale, is4clr, (int)w - 4);
+      cur_y += line_step;
+    }
+    s_epd.writeData(s_fortune_row, pitch);
+  }
+
+  if (is3clr) {
+    /* Write blank second plane for 3-color panels. */
+    s_epd.startWrite(PLANE_1);
+    for (y = 0; y < (int)h; y++) {
+      memset(s_fortune_row, 0x00u, (size_t)pitch);
+      s_epd.writeData(s_fortune_row, pitch);
+    }
+  }
+
   (void)s_epd.refresh(REFRESH_FULL, true);
   s_epd.sleep(DEEP_SLEEP);
   display_power_set(false);

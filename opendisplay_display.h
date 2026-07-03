@@ -16,6 +16,10 @@ void opendisplay_display_boot_apply(void);
 void opendisplay_display_park_pins(void);
 void opendisplay_display_power_off(void);
 
+/* Display a NULL-terminated array of text lines centered on the EPD.
+ * Lines must be all-uppercase (5x7 bitmap font). Blocks until refresh done. */
+void opendisplay_display_show_fortune(const char * const *lines);
+
 #ifdef __cplusplus
 }
 #endif
